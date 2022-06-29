@@ -327,6 +327,7 @@ export default {
           storageClassName: '',
           image:            this.imageId,
           volumeMode:       'Block',
+          ephemeral:        false,
         });
       } else {
         out = _disks.map( (DISK, index) => {
@@ -351,8 +352,11 @@ export default {
             container = volume.containerDisk.image;
           }
 
-          if (volume.persistentVolumeClaim && volume.persistentVolumeClaim?.claimName) {
-            volumeName = volume.persistentVolumeClaim.claimName;
+          const pvc = volume.persistentVolumeClaim || volume.ephemeral?.persistentVolumeClaim;
+          const ephemeral = 'ephemeral' in volume;
+
+          if (pvc?.claimName) {
+            volumeName = pvc?.claimName;
             const DVT = _volumeClaimTemplates.find( T => T.metadata.name === volumeName);
 
             realName = volumeName;
@@ -375,7 +379,7 @@ export default {
               dataSource = dataVolumeSpecPVC?.dataSource;
             } else { // SOURCE_TYPE.ATTACH_VOLUME
               const allPVCs = this.$store.getters['harvester/all'](PVC);
-              const pvcResource = allPVCs.find( O => O.id === `${ namespace }/${ volume?.persistentVolumeClaim?.claimName }`);
+              const pvcResource = allPVCs.find( O => O.id === `${ namespace }/${ volumeName }`);
 
               source = SOURCE_TYPE.ATTACH_VOLUME;
               accessMode = pvcResource?.spec?.accessModes?.[0] || 'ReadWriteMany';
@@ -385,7 +389,7 @@ export default {
               volumeName = pvcResource?.metadata?.name || '';
             }
 
-            hotpluggable = volume.persistentVolumeClaim.hotpluggable || false;
+            hotpluggable = pvc.hotpluggable || false;
           }
 
           const bus = DISK?.disk?.bus || DISK?.cdrom?.bus;
@@ -421,7 +425,8 @@ export default {
             storageClassName,
             hotpluggable,
             volumeStatus,
-            dataSource
+            dataSource,
+            ephemeral,
           };
         });
       }
@@ -771,9 +776,15 @@ export default {
       if (R.source === SOURCE_TYPE.CONTAINER) {
         out.containerDisk = { image: R.container };
       } else if (R.source === SOURCE_TYPE.IMAGE || R.source === SOURCE_TYPE.NEW || R.source === SOURCE_TYPE.ATTACH_VOLUME) {
-        out.persistentVolumeClaim = { claimName: dataVolumeName };
+        const persistentVolumeClaim = { claimName: dataVolumeName };
+
         if (R.hotpluggable) {
-          out.persistentVolumeClaim.hotpluggable = true;
+          persistentVolumeClaim.hotpluggable = true;
+        }
+        if (R.ephemeral) {
+          out.ephemeral = { persistentVolumeClaim };
+        } else {
+          out.persistentVolumeClaim = persistentVolumeClaim;
         }
       }
 
